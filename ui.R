@@ -53,33 +53,33 @@ ui_code <- dashboardPage(
     # --- Menú Principal ---
     sidebarMenu(
       # Menú de Inicio se mantiene en la parte superior
-      menuItem("Inicio", tabName = "home", icon = icon("home")),
+      shinydashboard::menuItem("Inicio", tabName = "home", icon = icon("home")),
       
       # 1. Menú principal "Información Electoral" con sub-elementos
-      menuItem("Información Electoral", icon = icon("vote-yea"), startExpanded = FALSE, # Cambia a TRUE si quieres que inicie abierto
+      shinydashboard::menuItem("Información Electoral", icon = icon("vote-yea"), startExpanded = FALSE, # Cambia a TRUE si quieres que inicie abierto
                
                # NOTA: Los nombres han sido actualizados, pero los 'tabName' se mantienen
                # para asegurar la compatibilidad con tu código del servidor.
-               menuSubItem("Participación Electoral",           tabName = "participacion"), # Añadido desde el primer código
-               menuSubItem("Comparativo Resultados Históricos", tabName = "ganadores"),
-               menuSubItem("Distancia Entre Primero y Segundo", tabName = "diferencias"),
-               menuSubItem("Voto Sombra",                       tabName = "sombra"),
-               menuSubItem("Evolución Partidista",              tabName = "cambios_porcentuales"),
-               menuSubItem("Voto Diferenciado Partidista",      tabName = "rendimiento_historico"),
-               menuSubItem("Comparativa ganadas/perdidas",      tabName = "robados"),
-               menuSubItem("BD Resultados",                     tabName = "creacion_tablas"),
-               menuSubItem("Lealtad Partidista",                tabName = "lealtad"), 
-               menuSubItem("Simulador de Resultados",           tabName = "simulaciones")
+               shinydashboard::menuSubItem("Participación Electoral",           tabName = "participacion"), # Añadido desde el primer código
+               shinydashboard::menuSubItem("Comparativo Resultados Históricos", tabName = "ganadores"),
+               shinydashboard::menuSubItem("Distancia Entre Primero y Segundo", tabName = "diferencias"),
+               shinydashboard::menuSubItem("Voto Sombra",                       tabName = "sombra"),
+               shinydashboard::menuSubItem("Evolución Partidista",              tabName = "cambios_porcentuales"),
+               shinydashboard::menuSubItem("Voto Diferenciado Partidista",      tabName = "rendimiento_historico"),
+               shinydashboard::menuSubItem("Comparativa ganadas/perdidas",      tabName = "robados"),
+               shinydashboard::menuSubItem("BD Resultados",                     tabName = "creacion_tablas"),
+               shinydashboard::menuSubItem("Lealtad Partidista",                tabName = "lealtad"), 
+               shinydashboard::menuSubItem("Simulador de Resultados",           tabName = "simulaciones")
       ),
       
       # 2. Renombramiento de "Datos censales" a "Datos Poblacionales"
-      menuItem("Datos Poblacionales",              tabName = "censales",             icon = icon("users-cog")),
+      shinydashboard::menuItem("Datos Poblacionales",              tabName = "censales",             icon = icon("users-cog")),
       
       # 3. Resto de los menús en el nivel principal
-      menuItem("Demografía Espacial",              tabName = "edades",               icon = icon("id-card")),
-      menuItem("Población y votos por manzana",    tabName = "data_mza",             icon = icon("map-marker-alt")),
-      menuItem("Perfil de colonias",               tabName = "información_colonias", icon = icon("map-signs")),
-      menuItem("Gestión de tiempo",                tabName = "tiempoxsección",       icon = icon("calendar-alt"))
+      shinydashboard::menuItem("Demografía Espacial",              tabName = "edades",               icon = icon("id-card")),
+      shinydashboard::menuItem("Población y votos por manzana",    tabName = "data_mza",             icon = icon("map-marker-alt")),
+      shinydashboard::menuItem("Perfil de colonias",               tabName = "información_colonias", icon = icon("map-signs")),
+      shinydashboard::menuItem("Gestión de tiempo",                tabName = "tiempoxsección",       icon = icon("calendar-alt"))
       
       # La línea de "Fortaleza Electoral" permanece comentada
       # menuItem("Fortaleza Electoral",           tabName = "probabilidades",       icon = icon("shield-alt"))
@@ -771,9 +771,7 @@ ui_code <- dashboardPage(
                 )
               ),
               
-              # --- FILTROS Y MAPAS ---
               fluidRow(
-                # Caja de controles (filtros)
                 box(
                   width = 3,
                   title = "Filtros de Análisis",
@@ -794,13 +792,11 @@ ui_code <- dashboardPage(
                               "3. Selecciona el partido a analizar",
                               choices = c("PAN","PRI","VERDE","PT","MC","MORENA","INDEP")),
                   
-                  hr(), # Una línea para separar visualmente
+                  hr(), 
                   
-                  # El botón de descarga queda mejor con los filtros
                   downloadButton("download_robados", "Descargar Datos (CSV)", class = "btn-block")
                 ),
                 
-                # Caja de salidas (mapas) ahora usando un tabBox
                 tabBox(
                   width = 9,
                   id = "map_tabs",

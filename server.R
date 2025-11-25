@@ -1,5 +1,5 @@
 
-
+source("global.R")
 credentials <- readxl::read_excel("www/data/contrasenas_nl.xlsx")
 
 
@@ -7,30 +7,19 @@ function(input, output, session) {
 
   # 2.1. AUTENTICACIÓN Y GESTIÓN DE USUARIO
 
-  
-  # secure_server: Inicia el módulo de autenticación de shinymanager.
-  # check_credentials: Valida las credenciales introducidas por el usuario
-  # contra el dataframe 'credentials'.
-  # El resultado (información del usuario) se almacena en el objeto reactivo 'res_auth'.
   res_auth <- secure_server(
     check_credentials = check_credentials(credentials)
   )
   
-  # Opcional: Salida para depuración que muestra los valores reactivos de res_auth
-  # (user, password, role, etc.) una vez que el usuario inicia sesión.
   output$auth_output <- renderPrint({
     reactiveValuesToList(res_auth)
   })
   
-  # Expresión reactiva para obtener de forma segura el ROL del usuario autenticado.
-  # req(res_auth$role) asegura que el código no se ejecute hasta que el usuario
-  # haya iniciado sesión y su rol esté disponible.
   get_user_role <- reactive({
     req(res_auth$role)
     return(res_auth$role)
   })
   
-  # Opcional: Salida para depurar y verificar que el rol se está capturando correctamente.
   output$user_role <- renderText({
     paste("User Role:", get_user_role())
   })
@@ -56,7 +45,21 @@ function(input, output, session) {
       distr_federal_rol <- unique(secciones_mty$DISTRITO)
       distr_loclal_rol  <- unique(secciones_mty$DISTRITO_L)
       
-    } else {
+    } else if(role == "usuario_garcia"){
+      choices_geograficos <- c("Municipio","DLocal")
+      
+      dta_garcia <- secciones_prev %>% 
+        filter(
+          NOMBRE == "GARCIA"
+        )
+      
+      
+      mun_rol <- "GARCIA"
+      distr_federal_rol <- dta_garcia[["DISTRITO"]] %>% unique()
+      distr_loclal_rol <- dta_garcia[["DISTRITO_L"]] %>% unique()
+      
+    }
+    else {
       choices_geograficos <- c("Municipio", "DFederal", "DLocal", "Ninguno")
       
       mun_rol <- secciones_prev[["NOMBRE"]] %>% unique()
@@ -100,8 +103,8 @@ function(input, output, session) {
   
   # Variables reactivas ----
   secciones <- reactive({
-    #browser()
     
+
     req(input$tipo_filtro_inicial)
     
     if (input$tipo_filtro_inicial == "Municipio") {
@@ -120,8 +123,8 @@ function(input, output, session) {
       mutate(filter_rol = case_when(
         role == "usuario_nuevo_leon" ~ TRUE,
         role == "usuario_monterrey" ~ MUNICIPIO == 40,
-        # Ejemplo: role == "distrito_5" ~ DISTRITO_L == 5,
-        
+        role == "usuario_garcia" ~ MUNICIPIO == 18,
+
         
         TRUE ~ FALSE 
       )) %>%
@@ -142,28 +145,18 @@ function(input, output, session) {
   
   rank_por_seccion_eleccion <- reactive({
     x = cant_votos_nl %>%
-      # Agrupar por sección y elección para analizar cada una por separado
       group_by(seccion, eleccion_año_id) %>%
-      # Asegurarse de que los datos estén ordenados de mayor a menor número de votos
       arrange(desc(votos)) %>%
-      # Usar mutate para añadir columnas sin colapsar el data frame todavía
       mutate(
-        # Calcular el total de votos para la sección
         votos_totales_seccion = sum(votos, na.rm = T),
-        # Asignar un ranking a cada partido dentro de su sección
         lugar = row_number()
       ) %>%
-      # Filtrar para quedarnos solo con el 1er y 2do lugar
-      #filter(lugar %in% c(1, 2)) %>%
-      # Seleccionar las columnas que nos interesan
       select(seccion, eleccion_año_id, votos_totales_seccion, partido, votos, lugar) %>%
-      # Reorganizar la tabla para que el 1er y 2do lugar queden en columnas separadas
       pivot_wider(
         names_from = lugar,
         values_from = c(partido, votos),
         names_sep = "_"
       ) %>%
-      # Desagrupar para futuras operaciones
       ungroup()
     
     return(x)
@@ -172,7 +165,7 @@ function(input, output, session) {
   base_ganadores_pr <- reactive({
     
     x <- secciones()
-    y <- st_drop_geometry(base_ganadores)# %>% select(-geometry) 
+    y <- st_drop_geometry(base_ganadores)
     
     z <- merge(x,y, by.x = "SECCION", by.y = "seccion", all.x = T)
     
@@ -188,19 +181,13 @@ function(input, output, session) {
   
   # 2.4. RENDERIZACIÓN DE ELEMENTOS DE UI (USER INTERFACE)
 
-  # Crea un selector de colonias dinámicamente.
-  # Las opciones de este selector dependen de las secciones que han sido
   output$colonias_seleccionadas <- renderUI({
     
-    # Se obtienen las secciones ya filtradas.
     secciones_actuales <- secciones()
     
-    # Se filtra el listado total de colonias para mostrar solo aquellas
-    # que pertenecen a las secciones permitidas.
     colonias_filtradas <- colonias %>%
       filter(SECCIÓN %in% secciones_actuales$SECCION)
     
-    # Se crea el selectInput con las opciones ya filtradas y ordenadas.
     shiny::selectInput(
       "colonia_seleccionada", 
       "Selecciona la colonia de tu interés", 
@@ -213,8 +200,7 @@ function(input, output, session) {
 
   ### Primer Mapa
   base_ganador_1 <- reactive({
-    # input$eleccion_1
-    
+
     req(input$eleccion_1)
 
     dta <- rank_por_seccion_eleccion()
@@ -226,7 +212,7 @@ function(input, output, session) {
     return(dta_filtrada)
   })
   
-  output$mapa_ganador_1 <- renderLeaflet({
+  output$mapa_gana <- renderLeaflet({
     
     dta <- base_ganador_1()
     
@@ -251,20 +237,14 @@ function(input, output, session) {
     shp_dta_popup <- secciones() %>%
       left_join(dta_popup, by = c("SECCION" = "seccion")) %>%
       st_transform(crs = "+proj=longlat +datum=WGS84") %>%
-      # Usar mutate para añadir las nuevas columnas de cálculo y el popup
       mutate(
-        # --- Cálculos ---
-        # Porcentaje de votos que obtuvo el ganador sobre el total de la sección
         porc_votos_ganador = (votos_1 / votos_totales_seccion) * 100,
         
-        # Diferencia de votos entre el primer y segundo lugar
         distancia_votos_2do = votos_1 - votos_2,
         porc_distancia = (distancia_votos_2do / votos_totales_seccion) * 100,
         
-        # Porcentaje de participación
         porc_participacion = (votos_totales_seccion/pobtotal)*100,
         
-        # --- Creación del Popup con formato HTML ---
         popup_html = paste0(
           "<b>Sección: </b>", htmlEscape(SECCION), "<br>",
           "<b>Elección: </b>", htmlEscape(eleccion_año_id), "<hr style='margin:0.5rem;'>",
@@ -294,7 +274,8 @@ function(input, output, session) {
         data = shp_dta_popup,
         color = "#596475", 
         stroke = T, weight= 1.3,
-        fillColor = pal(shp_dta_popup$partido_1),fillOpacity = 0.7, 
+        fillColor = pal(shp_dta_popup$partido_1),
+        fillOpacity = 0.7, 
         popup = ~ popup_html, 
         highlightOptions = highlightOptions(
           weight = 4,
@@ -319,7 +300,6 @@ function(input, output, session) {
   )
   
   
-  ### Segundo Mapa
   base_ganador_2 <- reactive({
     # input$eleccion_2
     
@@ -334,7 +314,7 @@ function(input, output, session) {
     return(dta_filtrada)
   })
   
-  output$mapa_ganador_2 <- renderLeaflet({
+  output$mapa_pierde <- renderLeaflet({
     
     dta <- base_ganador_2()
     
@@ -359,20 +339,14 @@ function(input, output, session) {
     shp_dta_popup <- secciones() %>%
       left_join(dta_popup, by = c("SECCION" = "seccion")) %>%
       st_transform(crs = "+proj=longlat +datum=WGS84") %>%
-      # Usar mutate para añadir las nuevas columnas de cálculo y el popup
       mutate(
-        # --- Cálculos ---
-        # Porcentaje de votos que obtuvo el ganador sobre el total de la sección
         porc_votos_ganador = (votos_1 / votos_totales_seccion) * 100,
         
-        # Diferencia de votos entre el primer y segundo lugar
         distancia_votos_2do = votos_1 - votos_2,
         porc_distancia = (distancia_votos_2do / votos_totales_seccion) * 100,
         
-        # Porcentaje de participación
         porc_participacion = (votos_totales_seccion/pobtotal)*100,
         
-        # --- Creación del Popup con formato HTML ---
         popup_html = paste0(
           "<b>Sección: </b>", htmlEscape(SECCION), "<br>",
           "<b>Elección: </b>", htmlEscape(eleccion_año_id), "<hr style='margin:0.5rem;'>",
@@ -401,7 +375,8 @@ function(input, output, session) {
         data = shp_dta_popup,
         color = "#596475", 
         stroke = T, weight= 1.3,
-        fillColor = pal(shp_dta_popup$partido_1),fillOpacity = 0.7, 
+        fillColor = pal(shp_dta_popup$partido_1),
+        fillOpacity = 0.7, 
         popup = ~ popup_html, 
         highlightOptions = highlightOptions(
           weight = 4,
@@ -605,40 +580,34 @@ function(input, output, session) {
     
     shp_ganadores_secciones <- shp_ganadores_secciones %>%
       mutate(
-        # Preparar el texto para la población total, manejando NAs
         pobtotal_display = ifelse(is.na(pobtotal), "No disponible", as.character(pobtotal)),
         
-        # Preparar el texto para los votos, manejando NAs
         votos_display = ifelse(is.na(votos), "No disponible", as.character(votos)),
         
-        # Calcular y formatear la proporción votos/población, manejando casos especiales:
         proporcion_display = case_when(
-          is.na(votos) | is.na(pobtotal) | pobtotal == 0 ~ "No disponible", # Si votos/población son NA o población es 0
-          TRUE ~ paste0(round((votos / pobtotal) * 100, 2), "%") # Formatear como porcentaje
+          is.na(votos) | is.na(pobtotal) | pobtotal == 0 ~ "No disponible", 
+          TRUE ~ paste0(round((votos / pobtotal) * 100, 2), "%") 
         ),
         
-        # Construir el popup dinámico
         popups_dinamicos = ifelse(
-          is.na(partido), # Condición principal: ¿El partido 'ganador' de la elección filtrada es NA para esta sección?
-          # Si 'partido' es NA, significa que el 'input$partido_ganador' no ganó en esta sección
-          # para las elecciones seleccionadas, o no hay datos relevantes.
-          
+          is.na(partido), 
+
           # --- Caso 1: El partido seleccionado NO ganó en esta sección o no hay datos ---
           paste0(
-            "<h4>Sección: ", SECCION, "</h4>", # Título de la sección
+            "<h4>Sección: ", SECCION, "</h4>", 
             "<strong>Municipio: </strong>", NOMBRE, "<br>",
-            "<strong>Población (Total Sección): </strong>", pobtotal_display, "<hr>", # Línea divisoria
+            "<strong>Población (Total Sección): </strong>", pobtotal_display, "<hr>", 
             "<em>El partido '", input$partido_ganador, "' no obtuvo victoria en esta sección o no aplica para las elecciones filtradas.</em>"
           ),
           
           # --- Caso 2: El partido seleccionado SÍ ganó en esta sección ---
           paste0(
-            "<h4>Sección: ", SECCION, "</h4>", # Título de la sección
+            "<h4>Sección: ", SECCION, "</h4>",
             "<strong>Municipio: </strong>", NOMBRE, "<br>",
-            "<strong>Población (Total Sección): </strong>", pobtotal_display, "<hr>", # Línea divisoria
-            "<strong>Partido Ganador (filtrado): </strong>", partido, "<br>", # Usar el 'partido' real de la columna
+            "<strong>Población (Total Sección): </strong>", pobtotal_display, "<hr>", 
+            "<strong>Partido Ganador (filtrado): </strong>", partido, "<br>", 
             "<strong>Elección(es) Ganada(s): </strong>", 
-            ifelse(is.na(eleccion_año_ids), "No especificado", eleccion_año_ids), "<br>", # Usar eleccion_año_ids (plural)
+            ifelse(is.na(eleccion_año_ids), "No especificado", eleccion_año_ids), "<br>", 
             "<strong>Votos obtenidos: </strong>", votos_display, "<br>",
             "<strong>Proporción votos/población: </strong>", proporcion_display
           )
@@ -651,32 +620,24 @@ function(input, output, session) {
     
     # --- 4. Crear el Mapa Leaflet ---
     leaflet(data = shp_ganadores_secciones) %>%
-      # Usar un mapa base
       addProviderTiles(providers$CartoDB.Voyager) %>%
       
-      # Añadir los polígonos de las secciones
       addPolygons(
-        # Usar el color del partido o un color neutro si no hay datos
         fillColor = ~ifelse(is.na(eleccion_año_ids), "#dad7cd", paleta_partidos[input$partido_ganador][[1]]),
         fillOpacity = 0.7,
-        # Estilo del borde
         color = "#596475",
         weight = 1.5,
         stroke = TRUE,
-        # Efecto al pasar el cursor por encima
         highlightOptions = highlightOptions(
           weight = 4,
           color = "#f72585",
           fillOpacity = 0.9,
           bringToFront = TRUE
         ),
-        # Asignar los popups dinámicos
         popup = ~popups_dinamicos,
-        # Etiqueta que aparece al pasar el cursor
         label = ~paste0("Sección: ", SECCION)
       ) %>%
       
-      # Añadir una leyenda
       addLegend(
         position = "bottomright",
         colors = c(paleta_partidos[input$partido_ganador][[1]], "#dad7cd"),
@@ -696,7 +657,6 @@ function(input, output, session) {
     "PT" = "#b30000",       # Rojo oscuro
     "VERDE" = "#4daf4a",    # Verde
     "INDEPE" = "#7678ed"     # Gris
-    # Añade más partidos y colores según sea necesario
   )
   
   output$download_quitar <- downloadHandler(
@@ -816,8 +776,6 @@ function(input, output, session) {
     eleccion_n_2 <- input$eleccion2_a
     partido_n <- input$partido_analisis_a
     
-    # --- MEJORA 2: Formato de texto más limpio con sprintf ---
-    # sprintf es más legible y eficiente que múltiples paste0().
     popup_text <- sprintf(
       "<strong>Sección: %s</strong><br/>
      Tasa de cambio para %s: <strong>%s</strong><br/>
@@ -833,20 +791,16 @@ function(input, output, session) {
       scales::percent(base_mapa_gp$prop_2, accuracy = 0.1)
     ) %>% lapply(htmltools::HTML) # Convertir texto a HTML
     
-    # --- MEJORA 3: Etiqueta simple para feedback instantáneo al pasar el cursor ---
     label_text <- sprintf(
       "Sección %s: %s",
       base_mapa_gp$SECCION,
       scales::percent(base_mapa_gp$cambio_s, accuracy = 0.1)
     )
     
-    # Construcción del mapa
     leaflet(base_mapa_gp) %>% 
       addProviderTiles(providers$CartoDB.Positron, group = "Mapa claro") %>%
       addProviderTiles(providers$CartoDB.DarkMatter, group = "Mapa oscuro") %>%
       
-      # --- MEJORA 4: Uso de fórmulas (~) y leyenda única y clara ---
-      # Se eliminó la segunda leyenda que no correspondía a ninguna capa visible.
       addLegend(
         pal = paleta_cambio, 
         values = ~cambio_s,  
@@ -856,17 +810,14 @@ function(input, output, session) {
       ) %>%
       
       addPolygons(
-        # Datos y estilos
-        color = "#495057", # Color de borde más oscuro para mejor contraste
+        color = "#495057", 
         weight = 1.3,
         fillColor = ~paleta_cambio(cambio_s),
-        fillOpacity = 0.8,
+        fillOpacity = 0.7,
         
-        # Opciones de interacción
-        label = label_text, # Etiqueta al pasar el cursor (hover)
-        popup = popup_text, # Popup detallado al hacer clic
+        label = label_text, 
+        popup = popup_text, 
         
-        # Resaltado al pasar el cursor
         highlightOptions = highlightOptions(
           weight = 3,
           color = "#e63946",
@@ -903,36 +854,24 @@ function(input, output, session) {
   
   
   
-  # Ganadores y perdedores ----
-  # rank_por_seccion_eleccion
-  
+  # Ganadores y perdedores (MÓDULO CORREGIDO) ----
   
   base_eleccion_1 <- reactive({
-    # input$eleccion1
-    
     req(input$eleccion1)
     
     dta <- rank_por_seccion_eleccion()
     dta_filtrada <- dta %>%
-      filter(
-        eleccion_año_id == input$eleccion1
-        #partido_1 == input$partido_analisis
-      )
+      filter(eleccion_año_id == input$eleccion1)
     
     return(dta_filtrada)
   })
   
   base_eleccion_2 <- reactive({
-    # input$eleccion2
-    
     req(input$eleccion2)
     
     dta <- rank_por_seccion_eleccion()
     dta_filtrada <- dta %>%
-      filter(
-        eleccion_año_id == input$eleccion2
-        #partido_1 == input$partido_analisis
-      )
+      filter(eleccion_año_id == input$eleccion2)
     
     return(dta_filtrada)
   })
@@ -944,60 +883,64 @@ function(input, output, session) {
     
     dta_eleccion_1 <- base_eleccion_1()
     dta_eleccion_2 <- base_eleccion_2()
-
+    
+    # Usamos full_join, pero debemos tener cuidado con NAs si las secciones cambiaron
     base <- full_join(
-      dta_eleccion_1,dta_eleccion_2, by = "seccion"
-      ) %>% 
+      dta_eleccion_1, dta_eleccion_2, by = "seccion"
+    ) %>% 
       mutate(
         gana_o_pierde = case_when(
-          partido_1.x  != partido_interes & partido_1.y == partido_interes ~ "gana",
-          partido_1.x  == partido_interes & partido_1.y != partido_interes ~ "pierde",
-          partido_1.x  != partido_interes & partido_1.y != partido_interes ~ "igual (pierde)",
-          partido_1.x  == partido_interes & partido_1.y == partido_interes ~ "igual (gana)",
+          # Caso 1: No lo tenía y ahora sí (Gana)
+          partido_1.x != partido_interes & partido_1.y == partido_interes ~ "gana",
+          # Caso 2: Lo tenía y ahora no (Pierde)
+          partido_1.x == partido_interes & partido_1.y != partido_interes ~ "pierde",
+          # Caso 3: No lo tenía y sigue sin tenerlo
+          partido_1.x != partido_interes & partido_1.y != partido_interes ~ "igual (pierde)",
+          # Caso 4: Lo tenía y lo mantuvo
+          partido_1.x == partido_interes & partido_1.y == partido_interes ~ "igual (gana)",
           TRUE ~ "NA"
-          )
         )
+      )
     
+    return(base)
   })
   
+  # MAPA GENERAL: GANA O PIERDE
   output$mapa_gana_o_pierde <- renderLeaflet({
     
-
     dta <- dta_ganadores_perdedores()
-
+    
     validate(
-      need(nrow(dta) > 0, 
-           "Con los permisos contratados, no tienes acceso a este municipio/distrito, cambia el filtro al inicio de la App. 
-             Si consideras que esto es incorrecto o se trata de algún otro error, por favor contacta a tu proveedor.")
+      need(nrow(dta) > 0, "No hay datos para mostrar.")
     )
     
     dta$gana_o_pierde <- factor(dta$gana_o_pierde, levels = c("gana", "pierde", "igual (pierde)", "igual (gana)"))
     
-    
     pal <- colorFactor(c("#06d6a0","#ef476f", "#e36414", "#219ebc"), domain = dta$gana_o_pierde)
     
-    
-    
+    # Cruce espacial
     shp_dta <- secciones() %>% 
       st_transform(crs = "+proj=longlat +datum=WGS84") %>% 
       left_join(dta, by = c("SECCION" = "seccion")) %>% 
+      filter(!is.na(gana_o_pierde)) %>% # Filtrar secciones sin datos
       mutate(
-        popup_html = paste0("<b>Seccion: </b>", SECCION, 
-                            ". <br/> <b> Votos eleccion base:</b> ", votos_1.x," (",partido_1.x,")",
-                            ". <br/> <b> Votos eleccion comparativa:</b> ", votos_1.y," (",partido_1.y,")"
-                            )
+        popup_html = paste0("<b>Sección: </b>", SECCION, 
+                            "<br><b>Estado: </b>", gana_o_pierde,
+                            "<hr>",
+                            "<b> ", input$eleccion1, ":</b> ", votos_1.x," (",partido_1.x,")",
+                            "<br><b> ", input$eleccion2, ":</b> ", votos_1.y," (",partido_1.y,")"
+        )
       )
-      
     
-    mapa <- leaflet() %>% 
+    leaflet() %>% 
       addProviderTiles(providers$CartoDB.Voyager)  %>% 
-      addLegend(pal = pal, values = shp_dta$gana_o_pierde,  title = "Que paso en la sección") %>% 
+      addLegend(pal = pal, values = shp_dta$gana_o_pierde,  title = "Balance") %>% 
       addPolygons(
         data = shp_dta, 
         color = "#596475", fillColor = ~ pal(gana_o_pierde),
         popup = ~ popup_html, 
         stroke = T, 
-        fillOpacity = 0.65, 
+        fillOpacity = 0.7, 
         weight= 1.3,
         highlightOptions = highlightOptions(
           weight = 2,
@@ -1005,353 +948,98 @@ function(input, output, session) {
           fillOpacity = 0.9,
           bringToFront = TRUE
         )) 
-    
-    return(mapa)
-    
   })
   
   
+  # MAPA: ¿A QUIÉN LE GANÓ? (Donde gana_o_pierde == 'gana')
   output$mapa_gana <- renderLeaflet({
     
+    # 1. Filtramos los datos
     dta <- dta_ganadores_perdedores() %>% 
-      filter(gana_o_pierde %in%  "gana" )
+      filter(gana_o_pierde == "gana")
     
+    validate(need(nrow(dta) > 0, "No se registraron ganancias de secciones en esta comparación."))
     
-    validate(
-      need(nrow(dta) > 0, 
-           "No hay datos para demostrar. Por favor ajuste los parámetros")
-    )
+    # 2. Unimos con shapefile (CORRECCIÓN IMPORTANTE)
+    shp_dta <- secciones() %>%
+      st_transform(crs = "+proj=longlat +datum=WGS84") %>%
+      inner_join(dta, by = c("SECCION" = "seccion")) # inner_join para quedarnos solo con lo que se ganó
     
-    dta$partido_1.x <- factor(dta$partido_1.x, levels = c("MC", "PAN", "PRI", "morena", "INDEPE", "VERDE", "pt"))
+    # 3. Definimos paleta (CORRECCIÓN MAYÚSCULAS)
+    # Usamos unique() para asegurar que cubrimos los partidos presentes
+    partidos_previos <- unique(shp_dta$partido_1.x)
     
-    pal <- colorFactor(c("orange","blue", "red", "maroon","purple", "#6CB655", "#E7DE08"), domain = dta$partido_1.x)
+    # Usamos la paleta global definida en Global.R para consistencia
+    # Si faltan colores, Leaflet los pondrá grises o usaremos una genérica
+    pal <- colorFactor(palette = paleta_partidos, domain = partidos_previos, na.color = "#808080")
     
-
-    mapa <- leaflet() %>%  
+    leaflet() %>%  
       addProviderTiles(providers$CartoDB.Voyager)  %>%  
-      addLegend(pal = pal, values = dta$partido_1.x,  title = "A quién le gano el partido la sección") %>%  
+      addLegend(pal = pal, values = shp_dta$partido_1.x, title = "Se le ganó a:") %>%  
       addPolygons(
-        data = dta, 
+        data = shp_dta, 
         color = "#596475", weight= 1.3, stroke = T,
-        fillColor = pal(dta$partido_1.x),fillOpacity = 0.65,
-        #popup = pop,
+        fillColor = ~pal(partido_1.x), fillOpacity = 0.65,
+        popup = ~paste0("<b>Sección:</b> ", SECCION, "<br><b>Antes gobernaba:</b> ", partido_1.x),
         highlightOptions = highlightOptions(
-          weight = 4,
-          color = "#f72585",
-          fillOpacity = 0.9,
-          bringToFront = TRUE
-          )
+          weight = 4, color = "#f72585", fillOpacity = 0.9, bringToFront = TRUE
         )
-    
-    return(mapa)
-    
+      )
   })
   
   
+  # MAPA: ¿QUIÉN NOS GANÓ? (Donde gana_o_pierde == 'pierde')
   output$mapa_pierde <- renderLeaflet({
     
-    base_mapa_gp <- dta_ganadores_perdedores() %>% 
-      filter(gana_o_pierde %in%  "pierde" )
+    # 1. Filtramos datos
+    dta <- dta_ganadores_perdedores() %>% 
+      filter(gana_o_pierde == "pierde")
     
+    validate(need(nrow(dta) > 0, "No se registraron pérdidas de secciones en esta comparación."))
     
+    # 2. Unimos con shapefile (CORRECCIÓN IMPORTANTE)
+    shp_dta <- secciones() %>%
+      st_transform(crs = "+proj=longlat +datum=WGS84") %>%
+      inner_join(dta, by = c("SECCION" = "seccion"))
     
+    # 3. Paleta
+    partidos_nuevos <- unique(shp_dta$partido_1.y)
+    pal <- colorFactor(palette = paleta_partidos, domain = partidos_nuevos, na.color = "#808080")
     
-    validate(
-      need(nrow(base_mapa_gp) > 0, 
-           "Con los permisos contratados, no tienes acceso a este municipio/distrito, cambia el filtro al inicio de la App. 
-             Si consideras que esto es incorrecto o se trata de algún otro error, por favor contacta a tu proveedor.")
-    )
-    
-    
-    base_mapa_gp$partido_1.y <- factor(base_mapa_gp$partido_1.y, levels = c("MC", "PAN", "PRI", "morena", "INDEPE", "VERDE", "PT"))
-    
-    pal <- colorFactor(c("orange","blue", "red", "maroon","purple", "#6CB655", "#E7DE08"), domain = base_mapa_gp$partido_1.y)
-    
-    
-    
-    mapa <- leaflet() %>% 
+    leaflet() %>% 
       addProviderTiles(providers$CartoDB.Voyager)%>% 
-      addLegend(pal = pal, values = base_mapa_gp$partido_1.y,  title = "Frente a quién perdió el partido la sección") %>% 
+      addLegend(pal = pal, values = shp_dta$partido_1.y,  title = "Se perdió frente a:") %>% 
       addPolygons(
-        data = base_mapa_gp, 
-        color = "#596475", fillColor = ~ pal(partido_1.y),fillOpacity = 0.65,
+        data = shp_dta, 
+        color = "#596475", fillColor = ~pal(partido_1.y), fillOpacity = 0.65,
         stroke = T,  weight= 1.3,
-        # popup = pop,
+        popup = ~paste0("<b>Sección:</b> ", SECCION, "<br><b>Ahora gobierna:</b> ", partido_1.y),
         highlightOptions = highlightOptions(
-          weight = 4,
-          color = "#f72585",
-          fillOpacity = 0.9,
-          bringToFront = TRUE
-          )
+          weight = 4, color = "#f72585", fillOpacity = 0.9, bringToFront = TRUE
         )
-    
-    
-    return(mapa)
-    
+      )
   })
   
+  # DOWNLOAD HANDLER CORREGIDO
   output$download_robados <- downloadHandler(
     filename = function() {
-      paste("my_data-", Sys.Date(), ".csv", sep="")
+      paste("ganadores_perdedores-", Sys.Date(), ".csv", sep="")
     },
     content = function(file) {
-      write.csv(select(st_drop_geometry(dta_ganadores_perdedores()), ENTIDAD:SECCION, tipo = gana_o_pierde) , file)
+      # Unimos con secciones() brevemente para obtener datos geográficos básicos si se desean,
+      # o simplemente descargamos la tabla plana calculada.
+      
+      data_to_save <- dta_ganadores_perdedores() %>%
+        # Si quieres Municipio, hay que unirlo
+        left_join(st_drop_geometry(secciones()) %>% select(SECCION, NOMBRE, DISTRITO, DISTRITO_L), by = c("seccion" = "SECCION")) %>%
+        select(Municipio = NOMBRE, Seccion = seccion, DFed = DISTRITO, DLoc = DISTRITO_L, 
+               Estatus = gana_o_pierde, Ganador_Anterior = partido_1.x, Ganador_Nuevo = partido_1.y)
+      
+      write.csv(data_to_save, file, row.names = FALSE)
     }
   )
   
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  # Gestión de tiempo de campaña ----
-  
-  # base_visitas_secciones <- reactive({
-  #   
-  #   z = (input$dias_campaña * input$equipos)/sum(na.omit(secciones()$pobtotal))
-  #   
-  #   basej <- base_ganadores %>% 
-  #     mutate(pob18 = as.numeric(poblacion)) %>% 
-  #     transmute(`seccion`, tiempoxseccion = round((z * pob18 * 8),2) ,
-  #               PRIPAN = case_when(
-  #                 dip_local_21 %in% "PRI"   ~ "PRI",
-  #                 TRUE ~ "PAN"
-  #               ), pob18, distrito
-  #     ) 
-  #   
-  #   basej <- secciones()%>% 
-  #     left_join(basej, by = c("SECCION" = "seccion")) %>% 
-  #     filter(!is.na(SECCION)) 
-  #   
-  #   basej
-  #   
-  #   
-  # })
-  # 
-  # 
-  # 
-  # output$mapa_visitas_secciones <- renderLeaflet({
-  #   
-  #   base_mapa_gp <-base_visitas_secciones()
-  #   
-  #   base_mapa_gp <- st_transform(base_mapa_gp, crs = "+proj=longlat +datum=WGS84")
-  #   
-  #   
-  #   
-  #   validate(
-  #     need(nrow(base_mapa_gp) > 0, 
-  #          "Con los permisos contratados, no tienes acceso a este municipio/distrito, cambia el filtro al inicio de la App. 
-  #            Si consideras que esto es incorrecto o se trata de algún otro error, por favor contacta a tu proveedor.")
-  #   )
-  #   
-  #   
-  #   
-  #   base_mapa <- base_mapa_gp
-  #   
-  #   
-  #   pal = colorNumeric(c("white", "red"), domain = base_mapa$tiempoxseccion)
-  #   
-  #   pop_tiempo <-   paste0("Seccion: ", base_mapa$SECCION, 
-  #                          ". <br/> Población mayor a 18 años: ", comma(base_mapa$pob18),
-  #                          ". <br/> Horas que se le deben dedicar a esta sección: ", base_mapa$tiempoxseccion,
-  #                          ". <br/> Partido como el que conviene presentarse: ", base_mapa$PRIPAN
-  #   )
-  #   
-  #   
-  #   mapa <- leaflet() %>% 
-  #     addProviderTiles(providers$CartoDB.Voyager) %>% 
-  #     addLegend(pal = pal, values = base_mapa$tiempoxseccion,  title = "Cuantas horas dedicar a la sección") %>% 
-  #     addPolygons(data = base_mapa, color = "#596475", fillColor = pal(base_mapa$tiempoxseccion),popup = pop_tiempo, stroke = T, 
-  #                 fillOpacity = 1, weight= 0.5) 
-  #   
-  #   mapa
-  #   
-  # })
-  # 
-  # output$download_basej <- downloadHandler(
-  #   filename = "tiempo_por_seccion.csv",
-  #   content = function(file) {
-  #     basej <- base_visitas_secciones() %>% 
-  #       rename(horas_a_dedicar = tiempoxseccion,
-  #              presentarse_como = PRIPAN
-  #       ) %>% 
-  #       filter(!is.na(`seccion`)) %>% 
-  #       st_drop_geometry()
-  #     
-  #     write.csv(basej, file, row.names = FALSE)
-  #   }
-  # )
-  
-  
-  
-  
-  
-  
-  
-  ### INFORMACIÓN DE COLONIAS
-  # base_colonias_sd <- reactive({
-  #   
-  #   colonias_2 <- colonias %>% 
-  #     filter(COLONIA %in% input$colonia_seleccionada) %>% 
-  #     select("SECCIÓN") %>% 
-  #     as_vector()
-  #   
-  #   
-  #   base_coloniass <- secciones_sd %>%
-  #     filter(SECCION %in% colonias_2) %>%
-  #     summarise(population = sum(POBTOT),
-  #               graproes = sum(GRAPROES * POBTOT) / sum(POBTOT),
-  #               pnacent = sum(PNACENT * POBTOT) / sum(POBTOT),
-  #               analfabetismo = sum(P15YM_AN * POBTOT) / sum(POBTOT),
-  #               graproes = sum(GRAPROES * POBTOT) / sum(POBTOT),
-  #               catolica = sum(PCATOLICA * POBTOT) / sum(POBTOT),
-  #               jovenprop = sum(p_joven * POBTOT) / sum(POBTOT),
-  #               viejoprop = sum(p_vieja * POBTOT) / sum(POBTOT),
-  #     ) %>% 
-  #     mutate(across(everything(), as.numeric))
-  #   
-  #   base_coloniass
-  #   
-  #   
-  #   
-  # })
-  # 
-  # nombres_colonias <- reactive({
-  #   colonias_2 <- colonias %>% 
-  #     filter(COLONIA %in% input$colonia_seleccionada) %>% 
-  #     select("SECCIÓN") 
-  #   
-  #   
-  # })
-  # 
-  # votos_colonia <- reactive({
-  #   colonias_2 <- colonias %>% 
-  #     filter(COLONIA %in% input$colonia_seleccionada) %>% 
-  #     select("SECCIÓN") %>% 
-  #     as_vector()
-  #   
-  #   votos_colonia <- cant_votos %>% 
-  #     filter(seccion %in% colonias_2) %>% 
-  #     group_by(eleccion, partido) %>% 
-  #     summarise(votos_total = sum(na.omit(votos))) %>% 
-  #     group_by(eleccion) %>% 
-  #     mutate(prop = votos_total/sum(votos_total)) %>% 
-  #     filter(!is.na(partido)) %>% 
-  #     filter(eleccion %in% input$eleccion_colonia)
-  #   
-  #   votos_colonia
-  #   
-  #   
-  #   
-  # })
-  # 
-  # output$download_votos_colonia <- downloadHandler(
-  #   filename = function() {
-  #     paste("my_data-", Sys.Date(), ".csv", sep="")
-  #   },
-  #   content = function(file) {
-  #     write.csv(votos_colonia() , file)
-  #   }
-  # )
-  # 
-  # votos_colonia_tiempo <- reactive({
-  #   colonias_2 <- colonias %>% 
-  #     filter(COLONIA %in% input$colonia_seleccionada) %>% 
-  #     select("SECCIÓN") %>% 
-  #     as_vector()
-  #   
-  #   votos_colonia_tiempo <- cant_votos %>% 
-  #     filter(seccion %in% colonias_2) %>% 
-  #     group_by(eleccion, partido) %>% 
-  #     summarise(votos_total = sum(na.omit(votos))) %>% 
-  #     group_by(eleccion) %>% 
-  #     mutate(prop = votos_total/sum(votos_total)) %>% 
-  #     filter(partido %in% input$partido_colonia)
-  #   
-  #   votos_colonia_tiempo
-  #   
-  #   
-  #   
-  # })
-  # 
-  # 
-  # output$download_votos_colonia_tiempo <- downloadHandler(
-  #   filename = function() {
-  #     paste("my_data-", Sys.Date(), ".csv", sep="")
-  #   },
-  #   content = function(file) {
-  #     write.csv(votos_colonia_tiempo() , file)
-  #   }
-  # )
-  # 
-  # 
-  # output$texto_colonia <- renderText({
-  #   
-  #   base_colonias <-  base_colonias_sd()
-  #   nombres_colonias <- nombres_colonias()
-  #   
-  #   paste0("La colonia escogida es ", input$colonia_seleccionada, ". Esta colonia pertenece a las secciones de '",  paste(nombres_colonias$SECCIÓN,collapse =  ","),
-  #          "'. Estas secciones en conjunto tienen una población de ", comma(base_colonias$population), " personas.", " El grado promedio de escolaridad es de ", round(base_colonias$graproes,2),
-  #          " años. El porcentaje de personas que nació en la entidad es de ", percent(base_colonias$pnacent, 2), ". Los jovenes ocupan al ", percent(base_colonias$jovenprop), 
-  #          " de la población, mientras que la población mayor alcanza al ", percent(base_colonias$viejoprop), " de la población. "
-  #   )
-  #   
-  # })
-  # 
-  # 
-  # output$grafico_colonia <- renderPlot({
-  #   
-  #   
-  #   ggplot(votos_colonia()) +
-  #     geom_col(aes(x = partido, y = prop, fill = partido)) +
-  #     labs(x = "Partido", y = "Proporción del voto obtenida por el partido", title = "Votos obtenidos por los partidos en la elección") +
-  #     theme_classic() +
-  #     scale_fill_manual(values = c(
-  #       "pri" = "red", "pan" = "blue", "morena" = "maroon", "mc" = "orange", "verde" = "#6CB655", "pt" = "#E7DE08"
-  #     ))
-  # })
-  # 
-  # output$grafico_colonia_tiempo <- renderPlot({
-  #   
-  #   titulo <- paste0("Votos obtenidos por el partido '", input$partido_colonia, "' en las elecciones.")
-  #   ggplot(votos_colonia_tiempo()) +
-  #     geom_col(aes(x = factor(eleccion, levels = c("ayunt15", "gob15", "dl15","fed15","ayunt18", "dipl18", "fed18", "sen18",
-  #                                                  "pres18", "ayunt21", "gob21", "dl21", "fed21")), y = prop, fill = prop)) +
-  #     scale_x_discrete(labels = c(ayunt15 = "Alcaldía 2015", gob15 = "Gobernador 2015", dl15 = "Diputado Local 2015", fed15 = "Diputado local 2015",
-  #                                 ayunt18 = "Alcaldía 2018", dipl18 = "Diputado local 2018", 
-  #                                 fed18 = "Diputado Federal 2018", sen18 = "Senador 2018", pres18 = "Presidente 2018", ayunt21 = "Alcaldía 2021",
-  #                                 gob21 = "Gobernador 2021", dl21 = "Diputado Local 2021", fed21 = "Diputado Federal 2021",
-  #                                 ayunt24 = "Alcaldía 2024", dipl24 = "Diputado local 2024", fed24 = "Diputado federal 2024", pres24 = "Presidente 2024", 
-  #                                 sen24 = "Senador 2024"
-  #                                 )) +
-  #     theme(axis.text.x = element_text(angle = 90)) +
-  #     labs(x = "Elección", y = "Proporción del voto obtenida por el partido", title = titulo) +
-  #     theme_classic()
-  #   
-  #   
-  #   
-  #   
-  # })
-  
-  
-  
+
 
   
   
@@ -1533,10 +1221,22 @@ function(input, output, session) {
       addLegend(colors = c("#caf0f8", "#90e0ef", "#00b4d8", "#0077b6", "#03045e"),
                 labels = c("Muy baja fortaleza", "Baja fortaleza", "Mediana fortaleza", "Alta fortaleza", "Muy alta fortaleza"), 
                 title = "Fortaleza")  %>% 
-      addPolygons(data = base_mapa, color = "#596475", fillColor = pal(base_mapa$probabilidad),popup = pop_tiempo, stroke = T, 
-                  fillOpacity = 1, weight= 0.5) 
+      addPolygons(
+        data = base_mapa, 
+        color = "#596475", 
+        fillColor = pal(base_mapa$probabilidad),
+        popup = pop_tiempo, 
+        stroke = T, 
+        fillOpacity = 0.7, 
+        weight= 0.5,
+        highlightOptions = highlightOptions(
+          weight = 4,
+          color = "#f72585",
+          fillOpacity = 0.9,
+          bringToFront = TRUE
+        )) 
     
-    mapa
+    return(mapa)
     
   })
   
@@ -1567,13 +1267,10 @@ function(input, output, session) {
   
   # Construimos datos desagregados
   query_archivo <- reactive({
-    #browser()
-    # Aquí ya se restringen datos de usuario y diltro a la geografia seleccionada
     data_shp <- sf::st_drop_geometry(secciones()) %>% select(SECCION, DISTRITO, DISTRITO_L,NOMBRE)
     
     data_shp_votos <- merge(data_shp, cant_votos_nl, by.x = "SECCION",by.y = "seccion", all.x = T)
     
-    # Filtramos dimenciones
     data_shp_votos_filtrado <- data_shp_votos[data_shp_votos$partido %in% input$pik_partido_archivo,]
     data_shp_votos_filtrado <- data_shp_votos_filtrado[data_shp_votos_filtrado$eleccion %in% input$pik_elecc_archivo,]
     data_shp_votos_filtrado <- data_shp_votos_filtrado[data_shp_votos_filtrado$año %in% input$pik_año_archivo,]
@@ -1637,7 +1334,7 @@ function(input, output, session) {
         scrollX = TRUE,
         
         #scrolly = TRUE,
-        rowCallback = JS(
+        rowCallback = DT::JS(
           "function(row, data) {",
           "$(row).on('click', function() {",
           "Shiny.setInputValue('fila_seleccionada', data[0]);",
@@ -1647,17 +1344,16 @@ function(input, output, session) {
       )
     )
     
-    # DT::datatable(tabla_pers(), options = list(dom = 't'), rownames = FALSE)
-    
+
   })
   
   output$dt_desagregada_archivo <- DT::renderDataTable({
     
     datatable(
       data = query_archivo(),
-      style = 'bootstrap5', # “default”, “bootstrap”, “bootstrap4”, “bootstrap5”, “bulma”, “foundation”, “jqueryui”, “semanticui”
+      style = 'bootstrap5', 
       class = 'header stripe',
-      extensions = c("Scroller"), #"Select","Buttons"
+      extensions = c("Scroller"), 
       selection = "single",
       options = list(
         searching = FALSE,
@@ -1669,7 +1365,7 @@ function(input, output, session) {
         scrollX = TRUE,
         
         #scrolly = TRUE,
-        rowCallback = JS(
+        rowCallback = DT::JS(
           "function(row, data) {",
           "$(row).on('click', function() {",
           "Shiny.setInputValue('fila_seleccionada', data[0]);",
@@ -2316,8 +2012,14 @@ function(input, output, session) {
         fillColor = ~pal(valor),
         popup = popup_sim1,
         stroke = TRUE,
-        fillOpacity = 1,
-        weight = 0.5
+        fillOpacity = 0.7,
+        weight = 0.5,
+        highlightOptions = highlightOptions(
+          weight = 4,
+          color = "#f72585",
+          fillOpacity = 0.8,
+          bringToFront = TRUE
+        )
       )
   })
   
@@ -2815,7 +2517,8 @@ function(input, output, session) {
     input$federal_inicial,
     input$local_inicial
   ),{
-    #browser()
+
+    
     
     # Actualizamos piker de multiples secciones
     updatePickerInput(session  = session,
@@ -2830,9 +2533,6 @@ function(input, output, session) {
     shinyjs::hide("slid_año_mza",          anim = T, animType = 'fade')
     shinyjs::hide("pik_secc_col_mza",      anim = T, animType = 'fade')
     shinyjs::hide("pik_pob_mza",           anim = T, animType = 'fade')
-    
-    # hide("pik_pob_mza",anim = T, animType = 'fade')
-    # hide("text_secc",anim = T, animType = 'fade')
     
     foco_secc_select$secc_select <- c()
 
