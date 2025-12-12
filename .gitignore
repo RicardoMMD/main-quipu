@@ -6,8 +6,8 @@
 *.Rproj
 
 # R temporales
-*.rds
-*.RDS
+# *.rds
+# *.RDS
 
 # Archivos de sesión R
 .httr-oauth
@@ -52,7 +52,7 @@ results/
 *.gif
 *.svg
 
-# Archivos de datos grandes (opcional - descomenta si necesitas)
+# Archivos de datos grandes 
 # data/
 # *.csv
 # *.xlsx
