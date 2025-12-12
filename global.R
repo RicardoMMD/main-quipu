@@ -18,6 +18,7 @@ library(colorRamps)
 library(htmltools)
 library(leaflet.extras2)
 library(shinycssloaders)
+library(jsonlite)
 
 source("R/branding_config.R")
 
@@ -25,14 +26,36 @@ source("R/branding_config.R")
 list.files("R", full.names = TRUE, pattern = "\\.R$") %>% 
   purrr::walk(source)
 
-# ==============================================================================
+# --- GESTIÓN DE CREDENCIALES ---
+creds_env <- Sys.getenv("APP_CREDENTIALS")
+
+if (creds_env != "") {
+  # Si existe la variable (estamos en el servidor configurado)
+  credentials <- jsonlite::fromJSON(creds_env)
+} else {
+  # FALLBACK: Si estás en tu compu local y no configuraste el .Renviron,
+  # intenta leer un archivo local (opcional) o usa unas credenciales de prueba.
+  # Esto evita que la app truene si se te olvida configurar la variable localmente.
+  
+  if(file.exists("seguridad/credentials.rds")){
+    credentials <- readRDS("seguridad/credentials.rds")
+  } else {
+    # Credenciales dummy de emergencia para desarrollo local
+    credentials <- data.frame(
+      user = c("admin"), 
+      password = c("admin"), 
+      role = c("admin"), 
+      stringsAsFactors = FALSE
+    )
+  }
+}
+
 # CONFIGURACIÓN DE IDENTIDAD
-# ==============================================================================
-# Cambia esto a "BOLETA" o "QUIPU" según lo que quieras desplegar
-MARCA_ACTIVA <- "QUIPU" 
+# Usar "BOLETA" o "QUIPU" según lo que quieras desplegar
+marca_actual <- Sys.getenv("MARCA_ACTIVA", unset = "QUIPU")
 
 # Cargamos los parámetros visuales
-APP_CONFIG <- obtener_configuracion_marca(MARCA_ACTIVA)
+APP_CONFIG <- obtener_configuracion_marca(marca_actual)
 
 # 3. CONSTANTES ESTÁTICAS ------------------------------------------------------
 # (Estas consumen poca memoria, se pueden dejar aquí)
@@ -61,8 +84,6 @@ paleta_cambio <- colorBin(palette = colores_cambio, domain = NULL, bins = bins_c
 
 # 4. CARGA DE DATOS OPTIMIZADA (RDS) -------------------------------------------
 
-# Credenciales (Ahora desde carpeta segura)
-credentials <- readRDS("seguridad/credentials.rds")
 
 # Listas Auxiliares (Cargamos el objeto y desglosamos)
 listas_aux <- readRDS("data_optimizada/listas_auxiliares.rds")
@@ -86,6 +107,7 @@ cant_votos <- readRDS("data_optimizada/cant_votos_simple.rds")
 base_ganadores <- readRDS("data_optimizada/base_ganadores.rds")
 res_trab <- readRDS("data_optimizada/res_trab.rds")
 edades <- readRDS("data_optimizada/edades.rds")
+colonias <- readRDS("data_optimizada/colonias.rds") 
 participacion <- readRDS("data_optimizada/participacion_full.rds")
 data_secc_cpv2020 <- readRDS("data_optimizada/data_secc_cpv2020_procesado.rds")
 

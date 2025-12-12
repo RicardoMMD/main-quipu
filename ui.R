@@ -6,16 +6,16 @@
 ui_code <- dashboardPage(
   
   title = APP_CONFIG$browser_title, # Título de la pestaña del navegador
+  skin = "blue",
   
-  # 1. Header Dinámico
+  
+  # 1. Header
   dashboardHeader(
     titleWidth = "25rem",
     title = tags$span(
-      tags$img(
-        src = APP_CONFIG$logo_path, 
-        height = "40", 
-        style = "margin-top:-5px; margin-right:5px;"
-      ),
+      tags$img(src = APP_CONFIG$logo_path, 
+               height = "40", 
+               style = "margin-top:-5px; margin-right:5px;"),
       APP_CONFIG$app_title
     )
   ),
@@ -26,6 +26,11 @@ ui_code <- dashboardPage(
     disable = FALSE,
     
     # Recursos globales
+    tags$head(
+      tags$style(
+        generar_css_dinamico(APP_CONFIG)
+      )
+    ),
     # includeCSS("www/styles.css"),
     includeScript("www/main.js"),
     useShinyjs(),

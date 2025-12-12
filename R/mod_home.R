@@ -10,8 +10,10 @@ mod_home_ui <- function(id) {
     # Fila 1: Bienvenida
     fluidRow(
       box(
+        
         title = tagList(shiny::icon("chart-pie"), "Bienvenidos a BOLETA Electoral"),
         status = "primary",
+        
         solidHeader = TRUE,
         width = 12,
         collapsible = FALSE,
