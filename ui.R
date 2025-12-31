@@ -35,7 +35,7 @@ ui_code <- dashboardPage(
     includeScript("www/main.js"),
     useShinyjs(),
     
-    # --- FILTROS GLOBALES (Se mantienen aquí) ---
+    # --- FILTROS GLOBALES ---
     shiny::selectInput("tipo_filtro_inicial",
                        "Nivel geográfico:",
                        choices = c("Municipio", "DFederal", "DLocal", "Ninguno"),
@@ -69,7 +69,12 @@ ui_code <- dashboardPage(
       shinydashboard::menuItem("Población y votos por manzana", tabName = "data_mza",             icon = icon("map-marker-alt")),
       shinydashboard::menuItem("Perfil de colonias",            tabName = "información_colonias", icon = icon("map-signs")),
       shinydashboard::menuItem("Gestión de tiempo",             tabName = "tiempoxsección",       icon = icon("calendar-alt")),
-      shinydashboard::menuItem("Fortaleza Electoral",           tabName = "probabilidades",       icon = icon("shield-alt"))
+      shinydashboard::menuItem("Fortaleza Electoral",           tabName = "probabilidades",       icon = icon("shield-alt")),
+      
+      shinydashboard::menuItem("Segmentación IA", tabName = "clustering_ia", icon = icon("brain"))
+      
+      
+      
     )
   ),
   
@@ -154,7 +159,11 @@ ui_code <- dashboardPage(
       
       # 17. Gestión de Tiempo
       tabItem(tabName = "tiempoxsección", 
-              mod_gestion_tiempo_ui("tiempo_1"))
+              mod_gestion_tiempo_ui("tiempo_1")),
+      
+      tabItem(tabName = "clustering_ia",
+              mod_clustering_secciones_ui("cluster_1"))
+      
     )
   )
 )

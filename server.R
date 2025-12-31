@@ -98,6 +98,20 @@ function(input, output, session) {
     
   }, ignoreNULL = TRUE)
   
+  # 1. CREAR REACTIVO DE CONTEXTO GEOGRÁFICO
+  # Este reactivo genera el texto que describe qué estamos viendo
+  contexto_geografico_actual <- reactive({
+    req(input$tipo_filtro_inicial)
+    
+    texto <- switch(input$tipo_filtro_inicial,
+                    "Municipio" = paste("del Municipio de", input$municipio_inicial),
+                    "DFederal"  = paste("del Distrito Federal", input$federal_inicial),
+                    "DLocal"    = paste("del Distrito Local", input$local_inicial),
+                    "Ninguno"   = "de todo el Estado de Nuevo León"
+    )
+    return(texto)
+  })
+  
   
   # 3. REACTIVOS MAESTROS (FUENTE DE VERDAD) -----------------------------------
   # Estos reactivos se calculan una vez aquí y se pasan a los módulos
@@ -115,7 +129,7 @@ function(input, output, session) {
     
     # 1. Filtrado por ROL (Seguridad)
     secciones_filtradas_por_rol <- secciones_prev %>%
-      st_transform(crs = "+proj=longlat +datum=WGS84") %>%
+      #st_transform(crs = "+proj=longlat +datum=WGS84") %>%
       mutate(filter_rol = case_when(
         role == "usuario_nuevo_leon" ~ TRUE,
         role == "usuario_monterrey" ~ MUNICIPIO == 40,
@@ -234,5 +248,10 @@ function(input, output, session) {
   
   # 17. Gestión de Tiempo
   mod_gestion_tiempo_server("tiempo_1", secciones_reactivas, base_ganadores_pr)
+  
+  mod_clustering_secciones_server("cluster_1", 
+                                  secciones_reactivas, 
+                                  contexto_geo = contexto_geografico_actual)
+  
   
 }

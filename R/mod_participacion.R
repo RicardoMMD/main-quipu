@@ -7,48 +7,90 @@ mod_participacion_ui <- function(id) {
   ns <- NS(id)
   
   tagList(
+    # --- CSS Específico para corregir el Scroll ---
+    tags$head(
+      tags$style(HTML("
+        /* Tarjetas KPI */
+        .kpi-card {
+          background-color: #f8f9fa;
+          border-left: 5px solid #0073b7;
+          padding: 15px;
+          border-radius: 4px;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+          margin-bottom: 20px;
+        }
+        .kpi-title { font-size: 12px; text-transform: uppercase; color: #6c757d; font-weight: 600; }
+        .kpi-value { font-size: 28px; font-weight: 700; color: #2c3e50; line-height: 1.2; }
+        
+        /* CORRECCIÓN SCROLL: Quitamos padding al cuerpo de la caja del mapa */
+        .map-box .box-body {
+          padding: 0 !important;
+        }
+        
+        /* Sombra opcional para resaltar el mapa */
+        .map-container {
+          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+      "))
+    ),
+    
     fluidRow(
+      style = "margin: 0;", # Evita scroll horizontal por márgenes negativos
+      
       # --- Panel Lateral ---
       column(
         width = 3,
+        style = "padding-left: 5px; padding-right: 5px;", # Ajuste fino de espaciado
+        
         box(
-          title = "Configuración", status = "primary", solidHeader = TRUE, width = 12,
-          p("Visualice los niveles de participación, lista nominal o votos totales."),
+          title = tagList(icon("sliders-h"), "Filtros"), 
+          status = "primary", 
+          solidHeader = TRUE, 
+          width = 12,
           
-          shiny::selectInput(ns("tipo_dato"), 
-                             "Variable a visualizar:",
-                             choices =  c("Lista Nominal", "Tasa de Participación" = "participacion", "Votos Totales" = "votos"),
-                             selected = "Lista Nominal"),
+          shinyWidgets::pickerInput(
+            inputId = ns("tipo_dato"),
+            label = "Variable a visualizar:",
+            choices = c("Lista Nominal", "Tasa de Participación" = "participacion", "Votos Totales" = "votos"),
+            selected = "Lista Nominal",
+            options = list(`style` = "btn-primary", `icon-base` = "fa")
+          ),
           
           hr(),
-          
-          # Estadísticas rápidas (ValueBox simplificado)
           uiOutput(ns("info_resumen")),
-          
           hr(),
           
-          downloadBttn(
+          shinyWidgets::downloadBttn(
             outputId = ns("descargar_data"), 
-            label = "Descargar Datos", 
-            style = "simple", color = "success", size = "sm", block = TRUE, icon = icon("download")
+            label = "Exportar CSV", 
+            style = "material-flat", 
+            color = "success", 
+            size = "sm", 
+            block = TRUE
           )
         )
       ),
       
-      # --- Mapa ---
+      # --- Mapa (Sin Scroll Doble) ---
       column(
         width = 9,
-        box(
-          width = 12, title = "Mapa de Calor Electoral", status = "info", solidHeader = TRUE,
-          
-          div(style = "position: relative;",
-              leafletOutput(ns("mapa_participacion"), height = "80vh"),
-              
-              # Botón flotante pantalla completa
-              div(style = "position: absolute; top: 10px; right: 10px; z-index: 1000;",
-                  actionButton(ns("btn_fullscreen"), label = NULL, icon = icon("expand"), 
-                               class = "btn-light btn-sm", style = "box-shadow: 0 0 5px rgba(0,0,0,0.3);")
-              )
+        style = "padding-left: 5px; padding-right: 5px;",
+        
+        div(
+          class = "map-container map-box", # Clase personalizada agregada arriba
+          box(
+            width = 12, 
+            title = tagList(icon("map-marked-alt"), "Geografía Electoral"), 
+            status = "info", 
+            solidHeader = TRUE,
+            
+            # --- CAMBIO IMPORTANTE AQUÍ ---
+            # Usamos calc(100vh - Xpx) donde X es aprox la altura del header + márgenes
+            shinycssloaders::withSpinner(
+              leafletOutput(ns("mapa_participacion"), height = "calc(100vh - 130px)"),
+              type = 4, 
+              color = "#0073b7"
+            )
           )
         )
       )
@@ -56,18 +98,19 @@ mod_participacion_ui <- function(id) {
   )
 }
 
+
+
+
 # 2. SERVER DEL MÓDULO ---------------------------------------------------------
 mod_participacion_server <- function(id, secciones_base) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # 1. Preparación de Geometría (Optimización) -------------------------------
-    # Solo se recalcula si cambian las secciones filtradas, NO la variable
+    # 1. Preparación de Geometría
     geo_base <- reactive({
       req(secciones_base())
       shp <- secciones_base()
       
-      # Detección dinámica de nombres de columnas
       cols <- names(shp)
       col_sec <- intersect(cols, c("SECCION", "Seccion", "CLAVE", "ID"))[1]
       col_nom <- intersect(cols, c("NOMBRE", "MUNICIPIO", "NOM_MUN", "NOMGEO"))[1]
@@ -75,8 +118,8 @@ mod_participacion_server <- function(id, secciones_base) {
       if (!is.na(col_sec)) {
         shp %>%
           transmute(
-            SECCION_JOIN = as.character(.data[[col_sec]]), # Estandarizamos ID
-            NOMBRE_SHOW  = if(!is.na(col_nom)) .data[[col_nom]] else "Municipio" # Estandarizamos Nombre
+            SECCION_JOIN = as.character(.data[[col_sec]]), 
+            NOMBRE_SHOW  = if(!is.na(col_nom)) .data[[col_nom]] else "Municipio"
           ) %>%
           st_transform(crs = 4326)
       } else {
@@ -84,19 +127,17 @@ mod_participacion_server <- function(id, secciones_base) {
       }
     })
     
-    # 2. Preparación de Datos (Join + Selección) -------------------------------
+    # 2. Preparación de Datos
     datos_mapa <- reactive({
       req(geo_base(), input$tipo_dato)
-      
       geo <- geo_base()
       
-      # 'participacion' es Global.
-      # Aseguramos que sea dataframe simple y convertimos columna de enlace
-      df_part <- participacion %>%
+
+      df_part <- participacion %>% 
         as.data.frame() %>%
-        mutate(SECCION = as.character(SECCION)) # Asumimos que en el CSV/RDS se llama SECCION
+        mutate(SECCION = as.character(SECCION)) %>% 
+        select(-GEOMETRY1_)
       
-      # Mapeo del input a la columna real del dataframe
       col_variable <- case_when(
         input$tipo_dato == "Lista Nominal" ~ "lista",
         input$tipo_dato == "participacion" ~ "participacion", 
@@ -104,31 +145,24 @@ mod_participacion_server <- function(id, secciones_base) {
         TRUE ~ "lista"
       )
       
-      # Verificar que la columna exista en el dataframe global
       if(!col_variable %in% names(df_part)) return(NULL)
       
-      # Join y limpieza
       geo %>%
         left_join(df_part, by = c("SECCION_JOIN" = "SECCION")) %>%
         mutate(
           valor_raw = .data[[col_variable]],
-          # Limpieza de infinitos o NaNs
           valor_mapa = ifelse(is.finite(valor_raw), valor_raw, 0)
         )
     })
     
-    # 3. Renderizado del Mapa --------------------------------------------------
+    # 3. Renderizado del Mapa (Actualizado con Plugin Fullscreen)
     output$mapa_participacion <- renderLeaflet({
       dta <- datos_mapa()
-      shiny::validate(need(!is.null(dta) && nrow(dta) > 0, "No hay datos de participación disponibles para esta zona."))
-      # Definición de etiquetas y formatos según el tipo de dato
+      shiny::validate(need(!is.null(dta) && nrow(dta) > 0, "Cargando datos geográficos..."))
+      
       es_porcentaje <- input$tipo_dato == "participacion"
+      pal <- colorNumeric(palette = "YlOrRd", domain = dta$valor_mapa, na.color = "#e0e0e0")
       
-      # Paleta de colores
-      # Usamos 'YlOrRd' (Amarillo-Naranja-Rojo) que es intuitivo para calor/intensidad
-      pal <- colorNumeric(palette = "YlOrRd", domain = dta$valor_mapa, na.color = "#808080")
-      
-      # Texto del Popup formateado
       txt_valor <- if(es_porcentaje) {
         paste0(format(round(dta$valor_mapa * 100, 1), nsmall = 1), "%")
       } else {
@@ -136,19 +170,16 @@ mod_participacion_server <- function(id, secciones_base) {
       }
       
       popup_html <- sprintf(
-        "<b>Municipio: </b>%s<br>
-         <b>Sección: </b>%s<hr style='margin:4px 0;'>
-         <b>%s: </b>%s",
-        dta$NOMBRE_SHOW,
-        dta$SECCION_JOIN,
-        input$tipo_dato,
-        txt_valor
+        "<div style='font-family: sans-serif;'>
+           <h5 style='margin: 0; color: #333;'>%s</h5>
+           <small style='color: #777;'>Sección %s</small>
+           <hr style='margin: 5px 0;'>
+           <strong>%s:</strong> <span style='color: #0073b7; font-size:1.1em;'>%s</span>
+         </div>",
+        dta$NOMBRE_SHOW, dta$SECCION_JOIN, input$tipo_dato, txt_valor
       )
       
-      # Título de leyenda
       titulo_leyenda <- if(es_porcentaje) "Participación (%)" else input$tipo_dato
-      
-      # Transformación para la leyenda (si es % se muestra 0-100 en vez de 0-1)
       lab_trans <- if(es_porcentaje) function(x) x * 100 else function(x) x
       sufijo    <- if(es_porcentaje) "%" else ""
       
@@ -156,9 +187,7 @@ mod_participacion_server <- function(id, secciones_base) {
         addProviderTiles(providers$CartoDB.Positron) %>%
         addPolygons(
           fillColor = ~pal(valor_mapa),
-          color = "#444",      # Borde gris oscuro
-          weight = 1,          # Borde delgado
-          opacity = 1,
+          color = "#999", weight = 0.5, opacity = 1,
           fillOpacity = 0.8,
           popup = popup_html,
           highlightOptions = highlightOptions(
@@ -166,51 +195,44 @@ mod_participacion_server <- function(id, secciones_base) {
           )
         ) %>%
         addLegend(
-          position = "bottomright",
-          pal = pal,
-          values = dta$valor_mapa,
+          position = "bottomright", pal = pal, values = dta$valor_mapa,
           title = titulo_leyenda,
           labFormat = labelFormat(transform = lab_trans, suffix = sufijo)
-        )
+        ) %>%
+        # Plugin nativo para pantalla completa (requiere leaflet.extras si no viene en leaflet base)
+        leaflet.extras::addFullscreenControl(position = "topleft", pseudoFullscreen = FALSE)
     })
     
-    # 4. Info Resumen (UI Dinámica) --------------------------------------------
+    # 4. Info Resumen (KPI Estilizado)
     output$info_resumen <- renderUI({
       req(datos_mapa())
       dta <- datos_mapa()
       
+      # Cálculos
       promedio <- mean(dta$valor_mapa, na.rm = TRUE)
+      total    <- sum(dta$valor_mapa, na.rm = TRUE)
       
       if(input$tipo_dato == "participacion") {
-        valor_txt <- paste0(round(promedio * 100, 1), "%")
-        sub_txt <- "Participación Promedio"
+        valor_main <- paste0(round(promedio * 100, 1), "%")
+        titulo_kpi <- "Tasa Promedio"
       } else {
-        valor_txt <- scales::comma(sum(dta$valor_mapa, na.rm=T))
-        sub_txt <- paste("Total", input$tipo_dato)
+        valor_main <- scales::comma(total)
+        titulo_kpi <- paste("Total", input$tipo_dato)
       }
       
-      div(
-        h3(valor_txt, style = "color: #0073b7; margin-bottom: 0;"),
-        span(sub_txt, style = "color: #666;")
+      # Generamos HTML que coincide con el CSS del UI
+      div(class = "kpi-card",
+          div(class = "kpi-title", titulo_kpi),
+          div(class = "kpi-value", valor_main)
       )
     })
     
-    # 5. Descarga --------------------------------------------------------------
+    # 5. Descarga
     output$descargar_data <- downloadHandler(
       filename = function() { paste0("participacion_", Sys.Date(), ".csv") },
       content = function(file) {
         write.csv(st_drop_geometry(datos_mapa()), file, row.names = FALSE)
       }
     )
-    
-    # 6. Fullscreen ------------------------------------------------------------
-    observeEvent(input$btn_fullscreen, {
-      shinyjs::runjs(sprintf(
-        "var map = document.getElementById('%s');
-         if (!document.fullscreenElement) { map.requestFullscreen(); } 
-         else { document.exitFullscreen(); }", 
-        ns("mapa_participacion")
-      ))
-    })
   })
 }

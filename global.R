@@ -20,6 +20,12 @@ library(leaflet.extras2)
 library(shinycssloaders)
 library(jsonlite)
 
+library(promises)
+library(future)
+library(gemini.R)
+
+plan(multisession)
+
 source("R/branding_config.R")
 
 # 2. CARGA DE MÓDULOS ----------------------------------------------------------
@@ -103,7 +109,7 @@ municipios_lista <- readRDS("data_optimizada/municipios_lista.rds")
 
 # Datos Tabulares
 cant_votos_nl <- readRDS("data_optimizada/cant_votos_nl_procesado.rds")
-cant_votos <- readRDS("data_optimizada/cant_votos_simple.rds")
+# cant_votos <- readRDS("data_optimizada/cant_votos_simple.rds")
 base_ganadores <- readRDS("data_optimizada/base_ganadores.rds")
 res_trab <- readRDS("data_optimizada/res_trab.rds")
 edades <- readRDS("data_optimizada/edades.rds")
@@ -113,3 +119,51 @@ data_secc_cpv2020 <- readRDS("data_optimizada/data_secc_cpv2020_procesado.rds")
 
 # Variable simple necesaria para UI
 list_eleccion <- sort(unique(cant_votos_nl$eleccion))
+
+
+mapa_elecciones <- c(
+  # 2015
+  "ayunt15" = "alcalde_15",
+  "gob15"   = "gober_15",
+  "dl15"    = "dip_local_15",
+  "fed15"   = "dip_fed_15",
+  
+  # 2018
+  "ayunt18" = "alcalde_18",
+  "dipl18"  = "dip_local_18",
+  "fed18"   = "dip_fed18",      
+  "sen18"   = "senado_18",
+  "pres18"  = "pres_18",
+  
+  # 2021
+  "ayunt21" = "alcalde_21",
+  "gob21"   = "gober_21",
+  "dl21"    = "dip_local_21",
+  "fed21"   = "dip_fed_21",
+  
+  # 2024
+  "ayunt24" = "alcalde_24",
+  "dipl24"  = "dip_local_24",
+  "fed24"   = "dip_fed24",
+  "pres24"  = "pres_24",
+  "sen24"   = "sen_24"
+)
+
+
+get_color_partido <- function(partido) {
+  p <- tolower(partido)
+  if (grepl("pan", p)) return("#0055bf")      # Azul PAN
+  if (grepl("pri", p)) return("#00953b")      # Verde PRI
+  if (grepl("morena", p)) return("#b1262d")   # Guinda Morena
+  if (grepl("mc", p)) return("#ff8300")       # Naranja MC
+  if (grepl("verde", p)) return("#50b747")    # Verde PVEM
+  if (grepl("pt", p)) return("#d91d29")       # Rojo PT
+  return("#666666")                           # Gris por defecto
+}
+
+
+
+
+
+
+
